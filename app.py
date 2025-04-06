@@ -8,9 +8,11 @@ import concurrent.futures
 import time
 from dotenv import load_dotenv
 from models_config import models
+from openai import OpenAI
 
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Check if API key is available
 if not OPENROUTER_API_KEY:
@@ -24,6 +26,12 @@ headers = {
 }
 
 def query_model(prompt, model_name):
+    # Geminiのモデルを使用する場合
+    if model_name.startswith("gemini:"):
+        # OpenAIライブラリを使用してGemini APIにアクセス
+        return query_gemini_with_openai(prompt, model_name.replace("gemini:", ""))
+    
+    # OpenRouterを通じて他のモデルにクエリする場合
     url = "https://openrouter.ai/api/v1/chat/completions"
     payload = {
         "model": model_name,
@@ -46,6 +54,29 @@ def query_model(prompt, model_name):
     except Exception as e:
         return f"❌ Unexpected Error: {str(e)}"
 
+def query_gemini_with_openai(prompt, model_id):
+    if not GOOGLE_API_KEY:
+        return "❌ GOOGLE_API_KEY is not set in your .env file. Please add it and restart the app."
+    
+    try:
+        # OpenAIクライアントでGemini APIを使用
+        client = OpenAI(
+            api_key=GOOGLE_API_KEY,
+            base_url="https://generativelanguage.googleapis.com/v1beta/"
+        )
+        
+        response = client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"❌ Gemini API (OpenAI Client) Error: {str(e)}"
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="LLM 比較ビュー", layout="wide")
 st.title("🤖 Momongaアリーナ")
@@ -56,8 +87,12 @@ if 'conversation' not in st.session_state:
 
 # モデル選択
 st.subheader("🔍 比較したいモデルを選んでください")
+
+# デフォルトで選択されるモデル名
+default_models = ["OpenAI GPT-4o", "DeepSeek Chat V3 0324", "Anthropic Claude 3.7 Sonnet"]
+
 selected_model_names = st.multiselect(
-    "使用するモデル", options=[m["name"] for m in models], default=[models[0]["name"]]
+    "使用するモデル", options=[m["name"] for m in models], default=default_models
 )
 
 # プロンプト入力
